@@ -1,3 +1,4 @@
+pip install streamlit pandas plotly feedparser yahooquery
 import streamlit as st
 import pandas as pd
 import plotly.graph_objs as go
