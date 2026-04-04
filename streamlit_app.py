@@ -70,24 +70,36 @@ else:
     with col_main:
         st.subheader(f"Current State: {selected_index}")
         
-        latest_data = df.iloc[-1]
-        prev_data = df.iloc[-2]
+        # Flatten MultiIndex columns if yfinance returned them
+        if isinstance(df.columns, pd.MultiIndex):
+            df_flat = df.copy()
+            df_flat.columns = df_flat.columns.droplevel(1)
+        else:
+            df_flat = df.copy()
+            
+        latest_data = df_flat.iloc[-1]
+        prev_data = df_flat.iloc[-2]
         
-        current_price = latest_data['Close']
-        price_change = current_price - prev_data['Close']
-        pct_change = (price_change / prev_data['Close']) * 100
+        # Ensure we extract scalar values (floats) for Streamlit metrics
+        current_price = float(latest_data['Close'])
+        prev_price = float(prev_data['Close'])
+        high_price = float(latest_data['High'])
+        volume = float(latest_data['Volume'])
+
+        price_change = current_price - prev_price
+        pct_change = (price_change / prev_price) * 100
         
         c1, c2, c3 = st.columns(3)
         c1.metric("Latest Close", f"₹{current_price:,.2f}", f"{price_change:,.2f} ({pct_change:.2f}%)")
-        c2.metric("Today's High", f"₹{latest_data['High']:,.2f}")
-        c3.metric("Trading Volume", f"{latest_data['Volume']:,.0f}")
+        c2.metric("Today's High", f"₹{high_price:,.2f}")
+        c3.metric("Trading Volume", f"{volume:,.0f}")
         
         # Candlestick Chart
         st.write("---")
         st.subheader("Market Progression Since Event Start")
-        fig = go.Figure(data=[go.Candlestick(x=df.index,
-                            open=df['Open'], high=df['High'],
-                            low=df['Low'], close=df['Close'],
+        fig = go.Figure(data=[go.Candlestick(x=df_flat.index,
+                            open=df_flat['Open'], high=df_flat['High'],
+                            low=df_flat['Low'], close=df_flat['Close'],
                             name="Market Data")])
 
         fig.add_vline(x=datetime.strptime(EVENT_START_DATE, "%Y-%m-%d").timestamp() * 1000, 
@@ -99,11 +111,11 @@ else:
 
         # Trend Analysis
         st.write("---")
-        df['50_MA'] = df['Close'].rolling(window=50).mean()
-        df['200_MA'] = df['Close'].rolling(window=200).mean()
+        df_flat['50_MA'] = df_flat['Close'].rolling(window=50).mean()
+        df_flat['200_MA'] = df_flat['Close'].rolling(window=200).mean()
         
-        latest_50_ma = df['50_MA'].iloc[-1]
-        latest_200_ma = df['200_MA'].iloc[-1]
+        latest_50_ma = float(df_flat['50_MA'].iloc[-1])
+        latest_200_ma = float(df_flat['200_MA'].iloc[-1])
         
         if latest_50_ma > latest_200_ma:
             st.success(f"🟢 **Bullish Trend (Golden Cross)**: 50-Day MA (₹{latest_50_ma:,.2f}) > 200-Day MA (₹{latest_200_ma:,.2f})")
@@ -134,16 +146,19 @@ else:
         st.subheader("📅 Recent Daily Impact")
         st.caption("How the market reacted day-by-day recently:")
         
-        # Calculate daily percentage change for the whole dataframe
-        df['Daily_Pct_Change'] = df['Close'].pct_change() * 100
+        # Calculate daily percentage change
+        df_flat['Daily_Pct_Change'] = df_flat['Close'].pct_change() * 100
         
         # Get the last 10 trading days, sort descending (newest first)
-        recent_timeline = df.tail(10).sort_index(ascending=False)
+        recent_timeline = df_flat.tail(10).sort_index(ascending=False)
         
         for date_index, row in recent_timeline.iterrows():
             date_str = date_index.strftime('%b %d, %Y')
-            pct = row['Daily_Pct_Change']
+            pct = float(row['Daily_Pct_Change'])
             
+            if pd.isna(pct):
+                continue
+                
             # Determine color and icon based on severity of market move
             if pct <= -1.5:
                 icon, color = "🚨", "red"
@@ -163,4 +178,4 @@ else:
                 
             st.markdown(f"**{date_str}**")
             st.markdown(f"{icon} :{color}[{pct:+.2f}%] - *{sentiment}*")
-            st.write("") # Small spacer
+            st.write("")
